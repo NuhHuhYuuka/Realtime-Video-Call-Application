@@ -17,7 +17,7 @@ using HttpClient httpClient = new HttpClient();
 // Triển khai vòng lặp vô hạn để duy trì phiên giao tiếp liên tục với AI Bot
 while (true)
 {
-    Console.Write("\nUser: ");
+    Console.Write("\nSenpai: ");
     string userPrompt = Console.ReadLine() ?? string.Empty;
 
     // Xử lý lệnh thoát chương trình từ phía người dùng
@@ -59,7 +59,7 @@ while (true)
         using JsonDocument jsonDoc = JsonDocument.Parse(responseBody);
         string generatedText = jsonDoc.RootElement.GetProperty("response").GetString() ?? string.Empty;
 
-        Console.WriteLine($"\n[UITI-CHAN RESPONSE]: {generatedText}");
+        Console.WriteLine($"\nUiti-chan: {generatedText}");
     }
     catch (HttpRequestException httpEx)
     {
