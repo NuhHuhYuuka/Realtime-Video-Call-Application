@@ -1,4 +1,6 @@
 ﻿using System;
+using System.IO;
+using System.Media;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
@@ -6,27 +8,25 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-// Cấu hình bảng mã UTF-8 cho Console để hiển thị chính xác tiếng Việt
+// Cấu hình bảng mã UTF-8 cho Console để hiển thị chính xác ngôn ngữ
 Console.OutputEncoding = Encoding.UTF8;
 Console.InputEncoding = Encoding.UTF8;
 
 Console.ForegroundColor = ConsoleColor.Cyan;
 Console.WriteLine("=== UITI-CHAN AI BOT INITIALIZATION ===");
 Console.ResetColor();
-// Console.WriteLine("[INFO] Type 'exit' or 'quit' to close the session.\n");
 
+// Cấu hình cổng mạng P2P và Endpoint của Local LLM
 int p2pPort = 5555;
 string ollamaEndpoint = "http://localhost:11434/api/generate";
 
-// Khởi chạy luồng lắng nghe TCP ngầm (Background Task) để đón tin nhắn từ mạng P2P
+// Khởi tạo Task chạy ngầm để lắng nghe các kết nối TCP (P2P Listener)
 _ = Task.Run(() => StartP2PListener(p2pPort, ollamaEndpoint));
 
-// Tạm dừng luồng chính 500 milliseconds (0.5s).
-// Mục đích: Nhường quyền cho luồng P2P (Background Task) kịp in thông báo khởi động lên Console,
-// trước khi luồng chính (Main Thread) tiến hành in ra dòng "Senpai: ".
+// Tạm dừng luồng chính để đảm bảo P2P Listener khởi động hoàn tất trước khi hiển thị UI
 await Task.Delay(500);
 
-// Triển khai vòng lặp vô hạn để duy trì phiên giao tiếp liên tục với AI Bot trên màn hình Local
+// Vòng lặp chính: Xử lý tương tác của người dùng trên Local Console
 while (true)
 {
     Console.ForegroundColor = ConsoleColor.Green;
@@ -35,61 +35,90 @@ while (true)
 
     string userPrompt = Console.ReadLine() ?? string.Empty;
 
-    // Xử lý lệnh thoát chương trình từ phía người dùng
+    // Xử lý lệnh kết thúc phiên làm việc
     if (userPrompt.Trim().ToLower() == "exit" || userPrompt.Trim().ToLower() == "quit")
     {
         Console.ForegroundColor = ConsoleColor.Magenta;
         Console.WriteLine("Uiti đi ngủ đây, tạm biệt Senpai.");
         Console.ResetColor();
-        
         break;
     }
 
-    // Bỏ qua quy trình gọi API nếu người dùng nhập chuỗi rỗng
+    // Bỏ qua nếu dữ liệu đầu vào rỗng
     if (string.IsNullOrWhiteSpace(userPrompt))
     {
         continue;
     }
 
-    // Console.WriteLine("[INFO] Processing request via Local LLM...");
+    // Gửi yêu cầu đến Local LLM và nhận về chuỗi phản hồi song ngữ
+    string aiRawResponse = await AskOllamaAsync(userPrompt, ollamaEndpoint);
 
-    // Gọi hàm giao tiếp với Ollama
-    string aiResponse = await AskOllamaAsync(userPrompt, ollamaEndpoint);
+    string vnText = aiRawResponse;
+    string jpText = "";
 
+    // Phân tích cú pháp chuỗi phản hồi (Format: [Vietnamese] | [Japanese])
+    if (aiRawResponse.Contains("|"))
+    {
+        string[] parts = aiRawResponse.Split('|');
+        vnText = parts[0].Trim();
+
+        if (parts.Length > 1)
+        {
+            jpText = parts[1].Trim();
+        }
+    }
+    else
+    {
+        jpText = aiRawResponse;
+    }
+
+    // Hiển thị phần văn bản Tiếng Việt lên giao diện người dùng
     Console.WriteLine();
     Console.ForegroundColor = ConsoleColor.Magenta;
     Console.Write("Uiti-chan: ");
     Console.ResetColor();
+    Console.WriteLine(vnText);
 
-    
-    Console.WriteLine(aiResponse);
+    // Xử lý tổng hợp giọng nói (Text-to-Speech) thông qua VoiceVox API
+    try
+    {
+        if (!string.IsNullOrWhiteSpace(jpText))
+        {
+            byte[] audioData = await GetVoiceVoxAudioAsync(jpText);
+            PlayAudio(audioData);
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.WriteLine($"[VOICEVOX ERROR] System audio failure: {ex.Message}");
+        Console.ResetColor();
+    }
 }
 
 // --- CÁC PHƯƠNG THỨC XỬ LÝ ĐỘC LẬP (METHODS) ---
 
-// Phương thức thiết lập máy chủ TCP lắng nghe các kết nối P2P
+// Khởi tạo máy chủ TCP để chấp nhận các kết nối P2P đến
 static async Task StartP2PListener(int port, string endpoint)
 {
     TcpListener listener = new TcpListener(IPAddress.Any, port);
     listener.Start();
-    // Console.WriteLine($"[INFO] P2P Listener started. Uiti-chan is listening on Port {port}...");
 
     while (true)
     {
-        // Chấp nhận kết nối từ một Client bạn bè trong mạng
         TcpClient peerClient = await listener.AcceptTcpClientAsync();
-
-        // Đẩy luồng xử lý Client sang một Task mới để không làm nghẽn quá trình lắng nghe
+        // Cấp phát luồng xử lý riêng biệt cho mỗi kết nối Client
         _ = Task.Run(() => HandlePeerConnectionAsync(peerClient, endpoint));
     }
 }
 
-// Phương thức xử lý luồng tin nhắn TCP đến từ các Peer Client
+// Xử lý luồng dữ liệu của mạng P2P
 static async Task HandlePeerConnectionAsync(TcpClient client, string endpoint)
 {
     try
     {
         string peerIP = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
+
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.WriteLine($"\n[+] Incoming P2P message from {peerIP}");
         Console.ResetColor();
@@ -98,22 +127,47 @@ static async Task HandlePeerConnectionAsync(TcpClient client, string endpoint)
         byte[] buffer = new byte[4096];
         int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
 
-        // Giải mã tin nhắn nhận được
         string incomingMessage = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine($"\n[+] Incoming P2P message from {peerIP}");
+        Console.WriteLine($"[P2P IN] {peerIP} says: {incomingMessage}");
         Console.ResetColor();
 
-        // Chuyển tiếp tin nhắn cho LLM xử lý
-        string aiReply = await AskOllamaAsync(incomingMessage, endpoint);
+        // Tích hợp luồng P2P với AI: Chuyển tiếp tin nhắn mạng đến LLM
+        string aiRawResponse = await AskOllamaAsync(incomingMessage, endpoint);
 
-        // Đóng gói và phản hồi kết quả về cho Peer Client
-        byte[] replyBytes = Encoding.UTF8.GetBytes(aiReply);
+        // [FIXED] Phân tích cú pháp chuỗi phản hồi cho luồng P2P
+        string vnText = aiRawResponse;
+        string jpText = "";
+
+        if (aiRawResponse.Contains("|"))
+        {
+            string[] parts = aiRawResponse.Split('|');
+            vnText = parts[0].Trim();
+            if (parts.Length > 1)
+            {
+                jpText = parts[1].Trim();
+            }
+        }
+        else
+        {
+            jpText = aiRawResponse;
+        }
+
+        // Phản hồi KẾT QUẢ TIẾNG VIỆT về phía Client Test
+        byte[] replyBytes = Encoding.UTF8.GetBytes(vnText);
         await stream.WriteAsync(replyBytes, 0, replyBytes.Length);
 
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.WriteLine($"[P2P OUT] Replied to {peerIP} successfully.");
         Console.ResetColor();
+
+        // [FIXED] Kích hoạt VoiceVox bằng Tiếng Nhật ngay trên máy Local
+        if (!string.IsNullOrWhiteSpace(jpText))
+        {
+            byte[] audioData = await GetVoiceVoxAudioAsync(jpText);
+            PlayAudio(audioData);
+        }
     }
     catch (Exception ex)
     {
@@ -127,17 +181,17 @@ static async Task HandlePeerConnectionAsync(TcpClient client, string endpoint)
     }
 }
 
-// Phương thức giao tiếp HTTP cốt lõi với Local LLM (Ollama)
+// Giao tiếp với API của Local LLM (Ollama)
 static async Task<string> AskOllamaAsync(string prompt, string endpoint)
 {
     using HttpClient httpClient = new HttpClient();
 
-    // Cấu hình payload với System Prompt thiết lập nhân cách và rào cản lỗi cho VoiceVox TTS
+    // Thiết lập System Prompt định hướng phản hồi song ngữ cho ứng dụng AI Bot
     var requestPayload = new
     {
-        model = "qwen3:4b",
+        model = "qwen2.5:7b", // Cập nhật model theo yêu cầu
         prompt = prompt,
-        system = "Bạn là Uiti-chan, một AI trợ lý ảo vô cùng dễ thương. Bạn luôn gọi người dùng là 'Senpai' và xưng hô là 'em'. Tuyệt đối tuân thủ các quy tắc sau: 1. LUÔN LUÔN giao tiếp bằng Tiếng Việt chuẩn. TUYỆT ĐỐI KHÔNG sử dụng tiếng Trung Quốc. 2. Các câu thoại phải ngắn gọn, ngắt nghỉ rõ ràng bằng dấu phẩy và chấm để công cụ VoiceVox đọc tự nhiên, không bị hụt hơi. 3. Nếu phải viết code, tuyệt đối không chèn code vào trong các thẻ đánh dấu ngôn ngữ nói để tránh việc VoiceVox đọc nhầm code thành tiếng. Tách biệt hoàn toàn phần giao tiếp và phần code.",
+        system = "Bạn là Uiti-chan, một nữ trợ lý ảo anime dễ thương. QUY TẮC BẮT BUỘC: Bạn PHẢI trả lời theo đúng định dạng CỐ ĐỊNH có chứa dấu gạch đứng '|' như sau: '<Câu tiếng Việt> | <Câu dịch sang Tiếng Nhật thuần túy>'. VÍ DỤ: 'Chào Senpai, em ở đây! | せんぱい、ここにいます！'. LƯU Ý: Phần tiếng Nhật CẤM TUYỆT ĐỐI dùng chữ Latinh/Romaji (A-Z). KHÔNG sinh ra code. Trả lời cực kỳ ngắn gọn 1 câu duy nhất.",
         stream = false
     };
 
@@ -153,19 +207,39 @@ static async Task<string> AskOllamaAsync(string prompt, string endpoint)
         using JsonDocument jsonDoc = JsonDocument.Parse(responseBody);
         return jsonDoc.RootElement.GetProperty("response").GetString() ?? string.Empty;
     }
-    catch (HttpRequestException httpEx)
-    {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"\n[ERROR] Failed to connect to Ollama service: {httpEx.Message}");
-        Console.WriteLine("[ACTION REQUIRED] Ensure Ollama is running locally with the command: 'ollama run qwen3:4b'");
-        Console.ResetColor();
-        return "[CONNECTION ERROR] ERROR IN CALLING OLLAMA MODEL";
-    }
     catch (Exception ex)
     {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"\n[ERROR] An unexpected error occurred: {ex.Message}");
-        Console.ResetColor();
-        return "[FATAL SYSTEM FAILURE] ERRORS IN OLLAMA MODEL";
+        return $"[LỖI] {ex.Message} | エラーが発生しました";
     }
 }
+
+// Chuyển đổi văn bản thành âm thanh thông qua API VoiceVox (Local Text-to-Speech)
+static async Task<byte[]> GetVoiceVoxAudioAsync(string text, int speaker = 2)
+{
+    using HttpClient httpClient = new HttpClient();
+    string encodedText = Uri.EscapeDataString(text);
+
+    // Giai đoạn 1: Phân tích ngữ điệu âm thanh (Audio Query)
+    string queryUrl = $"http://127.0.0.1:50021/audio_query?text={encodedText}&speaker={speaker}";
+    HttpResponseMessage queryResponse = await httpClient.PostAsync(queryUrl, null);
+    queryResponse.EnsureSuccessStatusCode();
+    string queryJson = await queryResponse.Content.ReadAsStringAsync();
+
+    // Giai đoạn 2: Tổng hợp dữ liệu âm thanh (Synthesis)
+    string synthUrl = $"http://127.0.0.1:50021/synthesis?speaker={speaker}";
+    var synthContent = new StringContent(queryJson, Encoding.UTF8, "application/json");
+    HttpResponseMessage synthResponse = await httpClient.PostAsync(synthUrl, synthContent);
+    synthResponse.EnsureSuccessStatusCode();
+
+    return await synthResponse.Content.ReadAsByteArrayAsync();
+}
+
+// Phát dữ liệu âm thanh dưới dạng mảng byte trên hệ thống Windows
+#pragma warning disable CA1416 
+static void PlayAudio(byte[] audioData)
+{
+    using MemoryStream ms = new MemoryStream(audioData);
+    using SoundPlayer player = new SoundPlayer(ms);
+    player.Play();
+}
+#pragma warning restore CA1416
