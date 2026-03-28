@@ -10,7 +10,9 @@ using System.Threading.Tasks;
 Console.OutputEncoding = Encoding.UTF8;
 Console.InputEncoding = Encoding.UTF8;
 
+Console.ForegroundColor = ConsoleColor.Cyan;
 Console.WriteLine("=== UITI-CHAN AI BOT INITIALIZATION ===");
+Console.ResetColor();
 // Console.WriteLine("[INFO] Type 'exit' or 'quit' to close the session.\n");
 
 int p2pPort = 5555;
@@ -27,13 +29,19 @@ await Task.Delay(500);
 // Triển khai vòng lặp vô hạn để duy trì phiên giao tiếp liên tục với AI Bot trên màn hình Local
 while (true)
 {
+    Console.ForegroundColor = ConsoleColor.Green;
     Console.Write("\nSenpai: ");
+    Console.ResetColor();
+
     string userPrompt = Console.ReadLine() ?? string.Empty;
 
     // Xử lý lệnh thoát chương trình từ phía người dùng
     if (userPrompt.Trim().ToLower() == "exit" || userPrompt.Trim().ToLower() == "quit")
     {
+        Console.ForegroundColor = ConsoleColor.Magenta;
         Console.WriteLine("Uiti đi ngủ đây, tạm biệt Senpai.");
+        Console.ResetColor();
+        
         break;
     }
 
@@ -47,7 +55,14 @@ while (true)
 
     // Gọi hàm giao tiếp với Ollama
     string aiResponse = await AskOllamaAsync(userPrompt, ollamaEndpoint);
-    Console.WriteLine($"\nUiti-chan: {aiResponse}");
+
+    Console.WriteLine();
+    Console.ForegroundColor = ConsoleColor.Magenta;
+    Console.Write("Uiti-chan: ");
+    Console.ResetColor();
+
+    
+    Console.WriteLine(aiResponse);
 }
 
 // --- CÁC PHƯƠNG THỨC XỬ LÝ ĐỘC LẬP (METHODS) ---
@@ -75,7 +90,9 @@ static async Task HandlePeerConnectionAsync(TcpClient client, string endpoint)
     try
     {
         string peerIP = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
+        Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.WriteLine($"\n[+] Incoming P2P message from {peerIP}");
+        Console.ResetColor();
 
         NetworkStream stream = client.GetStream();
         byte[] buffer = new byte[4096];
@@ -83,7 +100,9 @@ static async Task HandlePeerConnectionAsync(TcpClient client, string endpoint)
 
         // Giải mã tin nhắn nhận được
         string incomingMessage = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-        Console.WriteLine($"[P2P IN] {peerIP} says: {incomingMessage}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"\n[+] Incoming P2P message from {peerIP}");
+        Console.ResetColor();
 
         // Chuyển tiếp tin nhắn cho LLM xử lý
         string aiReply = await AskOllamaAsync(incomingMessage, endpoint);
@@ -92,11 +111,15 @@ static async Task HandlePeerConnectionAsync(TcpClient client, string endpoint)
         byte[] replyBytes = Encoding.UTF8.GetBytes(aiReply);
         await stream.WriteAsync(replyBytes, 0, replyBytes.Length);
 
+        Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.WriteLine($"[P2P OUT] Replied to {peerIP} successfully.");
+        Console.ResetColor();
     }
     catch (Exception ex)
     {
+        Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine($"[ERROR] P2P Connection error: {ex.Message}");
+        Console.ResetColor();
     }
     finally
     {
@@ -132,13 +155,17 @@ static async Task<string> AskOllamaAsync(string prompt, string endpoint)
     }
     catch (HttpRequestException httpEx)
     {
+        Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine($"\n[ERROR] Failed to connect to Ollama service: {httpEx.Message}");
         Console.WriteLine("[ACTION REQUIRED] Ensure Ollama is running locally with the command: 'ollama run qwen3:4b'");
+        Console.ResetColor();
         return "[CONNECTION ERROR] ERROR IN CALLING OLLAMA MODEL";
     }
     catch (Exception ex)
     {
+        Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine($"\n[ERROR] An unexpected error occurred: {ex.Message}");
+        Console.ResetColor();
         return "[FATAL SYSTEM FAILURE] ERRORS IN OLLAMA MODEL";
     }
 }
