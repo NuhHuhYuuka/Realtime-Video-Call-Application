@@ -5,9 +5,16 @@ namespace SecurityData.Models
     public class ChatMessage
     {
         public int Id { get; set; }
-        public string Sender { get; set; }   // Tên người gửi
-        public string Content { get; set; }  // Nội dung (đã mã hóa)
+        public string Sender { get; set; }
+        public string Receiver { get; set; }
+        public string Content { get; set; }        // ciphertext hoặc plaintext sau giải mã
         public DateTime Timestamp { get; set; }
-        public bool IsFile { get; set; }     // Phân biệt tin nhắn thường hay file
+        public bool IsFile { get; set; }
+
+        public string FileName { get; set; }
+        public string FilePath { get; set; }
+        public string IV { get; set; }
+        public string Salt { get; set; }
+        public string TransferId { get; set; }
     }
 }
