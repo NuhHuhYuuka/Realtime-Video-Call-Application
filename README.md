@@ -1,33 +1,28 @@
 ## NIHAHAHAHA, THIS IS JUST A TEST MARKDOWN
-Hướng dẫn cho phần Security & Local Data
-Thư viện: Cài đặt NuGet System.Data.SQLite và Stub.System.Data.SQLite.Core.NetFramework cho Project Client và Bot.
 
-Sử dụng: Thêm using SecurityData.Services; ở đầu các file cần dùng hàm mã hóa/DB.
+## 🔐 Hướng dẫn tích hợp Bảo mật & Dữ liệu (Thành viên 2)
 
-1. Cách sử dụng các hàm (Services)
-Bảo mật (SecurityService):
+Mọi người sau khi **Pull** code về, vui lòng đọc kỹ hướng dẫn này để ráp logic vào UI và LAN:
 
-Dùng SecurityService.Encrypt(plainText) để mã hóa tin nhắn trước khi gửi qua LAN hoặc lưu vào DB.
+### 1. Thư viện & Cấu hình (Fix lỗi DLL)
+-Thư viện: Cài đặt NuGet System.Data.SQLite và Stub.System.Data.SQLite.Core.NetFramework cho Project Client và Bot.
+- Database `ChatApp.db` được lưu tự động tại thư mục `ApplicationData` của máy để tránh lỗi phân quyền.
 
-Dùng SecurityService.Decrypt(cipherText) để giải mã tin nhắn nhận được.
+### 2. Cách dùng SecurityService (Mã hóa AES-256)
+Sử dụng IV và Salt ngẫu nhiên cho từng tin nhắn để đảm bảo an toàn tối đa:
+- **Mã hóa:** `string encrypted = SecurityService.Encrypt("Nội dung tin nhắn");`
+- **Giải mã:** `string decrypted = SecurityService.Decrypt(encryptedFromServer);`
 
-Lưu ý: Bản mới này sử dụng Salt và IV ngẫu nhiên cho mỗi tin nhắn để đảm bảo an toàn tối đa.
+### 3. Cách dùng DatabaseService (Lưu lịch sử)
+Mọi tin nhắn nên được lưu vào máy local để xem lại:
+- **Lưu tin nhắn:** `dbService.SaveMessage(chatMessageObject);`
+- **Lấy lịch sử:** `var history = dbService.GetHistory("Tên người nhận");`
+- **Xóa/Sửa:** Đã có sẵn các hàm `DeleteMessage(id)` và `UpdateMessage(id, content)`.
 
-Dữ liệu (DatabaseService):
+### 4. Truyền File qua LAN (Chunking 64KB)
+Để gửi ảnh/file dung lượng lớn mà không nghẽn mạng:
+- **Bên gửi:** Dùng `FileTransferService.SplitFile(path)` để chia file thành các `FileChunk`.
+- **Bên nhận:** Dùng `FileTransferService.BytesToFile(name, data)` sau khi đã nhận đủ các mảnh byte.
+- **Kiểm tra:** Có thể dùng `ComputeSha256(path)` để so sánh mã băm, đảm bảo file không bị lỗi khi truyền.
 
-Khi cần lưu tin nhắn: Khởi tạo đối tượng ChatMessage rồi gọi dbService.SaveMessage(msg).
-
-Để lấy lịch sử: Dùng dbService.GetHistory(peer) hoặc dbService.GetAllHistory().
-
-Đã hỗ trợ đầy đủ các hàm Xóa (DeleteMessage/DeleteConversation) và Sửa (UpdateMessage) dựa trên ID.
-
-Truyền file (FileTransferService):
-
-Mình đã xử lý Chunking (chia nhỏ 64KB/gói) để gửi file lớn không bị nghẽn mạng.
-
-Bên gửi dùng FileTransferService.SplitFile(path) để lấy các mảnh byte gửi đi.
-
-Bên nhận dùng FileTransferService.BytesToFile(name, data) để lưu file vào thư mục Documents.
-
-3. Các Model mới
-Mọi người tham khảo các class ChatMessage, FileChunk và NetworkPacket trong folder Models để đồng bộ kiểu dữ liệu khi truyền nhận qua LAN nhé.
+---
