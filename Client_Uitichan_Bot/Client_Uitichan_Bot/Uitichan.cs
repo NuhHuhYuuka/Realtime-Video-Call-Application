@@ -117,7 +117,7 @@ static void StartVoiceVoxEngine()
 {
     try
     {
-        string voiceVoxPath = @"Your VoiceVox Path Here";
+        string voiceVoxPath = @"Your VoiceVox Path Here (run.exe)";
 
         if (File.Exists(voiceVoxPath))
         {
