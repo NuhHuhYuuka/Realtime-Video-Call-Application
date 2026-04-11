@@ -5,7 +5,7 @@
 Mọi người sau khi **Pull** code về, vui lòng đọc kỹ hướng dẫn này để ráp logic vào UI và LAN:
 
 ### 1. Thư viện & Cấu hình (Fix lỗi DLL)
--Thư viện: Cài đặt NuGet System.Data.SQLite và Stub.System.Data.SQLite.Core.NetFramework cho Project Client và Bot.
+-Thư viện: Cài đặt NuGet System.Data.SQLite và Newtonsoft.Json cho Project Client và Bot.
 - Database `ChatApp.db` được lưu tự động tại thư mục `ApplicationData` của máy để tránh lỗi phân quyền.
 
 ### 2. Cách dùng SecurityService (Mã hóa AES-256)
