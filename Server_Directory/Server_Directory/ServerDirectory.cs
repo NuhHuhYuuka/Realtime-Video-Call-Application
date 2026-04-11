@@ -48,9 +48,11 @@ static void HandleClient(TcpClient client, ConcurrentDictionary<string, string> 
         string incomingMessage = reader.ReadLine();
         if (string.IsNullOrEmpty(incomingMessage)) return;
 
-        // 2. Quy ước Giao thức (Protocol): "REGISTER|Username|ClientListeningPort"
+        // 2. Quy ước Giao thức (Protocol)
         string[] protocolParts = incomingMessage.Split('|');
-        if (protocolParts.Length == 3 && protocolParts[0] == "REGISTER")
+        string command = protocolParts[0];
+
+        if (command == "REGISTER" && protocolParts.Length == 3)
         {
             string username = protocolParts[1];
             string clientListeningPort = protocolParts[2];
@@ -75,6 +77,20 @@ static void HandleClient(TcpClient client, ConcurrentDictionary<string, string> 
 
             Console.WriteLine($"[INFO] Sent active user list to '{username}'");
         }
+        else if (command == "LOGOUT" && protocolParts.Length == 2)
+        {
+            string username = protocolParts[1];
+
+            // Xóa người dùng khỏi danh bạ khi họ thoát
+            if (directory.TryRemove(username, out _))
+            {
+                Console.ForegroundColor = ConsoleColor.DarkYellow;
+                Console.WriteLine($"[LOGOUT] User '{username}' has left the network. Directory cleaned.");
+                Console.ResetColor();
+
+                writer.WriteLine("LOGOUT_SUCCESS");
+            }
+        }
         else
         {
             Console.ForegroundColor = ConsoleColor.Yellow;
@@ -82,10 +98,18 @@ static void HandleClient(TcpClient client, ConcurrentDictionary<string, string> 
             Console.ResetColor();
         }
     }
+    catch (IOException ioEx) when (ioEx.InnerException is SocketException socketEx &&
+                                  (socketEx.SocketErrorCode == SocketError.ConnectionAborted ||
+                                   socketEx.SocketErrorCode == SocketError.ConnectionReset))
+    {
+        // Bỏ qua lỗi và không in ra màn hình nếu Client tự ngắt kết nối hoặc rớt mạng
+        // Giúp màn hình Console của Server luôn sạch sẽ
+    }
     catch (Exception ex)
     {
+        // Chỉ in ra màn hình những lỗi hệ thống nghiêm trọng thực sự
         Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"[ERROR] Client connection lost: {ex.Message}");
+        Console.WriteLine($"[ERROR] Unexpected server error: {ex.Message}");
         Console.ResetColor();
     }
     finally
