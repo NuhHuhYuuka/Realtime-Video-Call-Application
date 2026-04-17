@@ -1,100 +1,123 @@
-﻿using System;
-using System.IO;
+﻿using SecurityData.Models;
+using System;
 using System.Security.Cryptography;
 using System.Text;
 
 namespace SecurityData.Services
 {
-    public class SecurityService
+    public static class SecurityService
     {
-        // Khóa bí mật cho AES-256 - nên dùng passphrase thay vì hardcode key này
-        private static readonly string SecretKey = "UitiChan_Security_Key_2024_12345";
+        private const int NonceSize = 12; // recommended for GCM
+        private const int TagSize = 16;   // 128-bit auth tag
 
-        // Mã hóa AES với IV ngẫu nhiên và salt cho mỗi tin nhắn
-        public static string Encrypt(string plainText)
+        public static EncryptionResult Encrypt(string plainText, byte[] sessionKey)
         {
-            using (Aes aes = Aes.Create())
+            if (string.IsNullOrWhiteSpace(plainText))
+                throw new ArgumentException("plainText không được rỗng.");
+
+            if (sessionKey == null || sessionKey.Length < 16)
+                throw new ArgumentException("sessionKey không hợp lệ.");
+
+            byte[] nonce = new byte[NonceSize];
+            byte[] plaintextBytes = Encoding.UTF8.GetBytes(plainText);
+            byte[] cipherBytes = new byte[plaintextBytes.Length];
+            byte[] tag = new byte[TagSize];
+
+            using (var rng = RandomNumberGenerator.Create())
             {
-                aes.KeySize = 256; // AES-256
-                aes.BlockSize = 128;
-
-                // Sinh salt và IV ngẫu nhiên
-                byte[] salt = new byte[16];
-                byte[] iv = new byte[16];
-                using (var rng = new RNGCryptoServiceProvider())
-                {
-                    rng.GetBytes(salt);
-                    rng.GetBytes(iv);
-                }
-
-                // Derive key từ passphrase và salt
-                var key = new Rfc2898DeriveBytes(SecretKey, salt, 100000, HashAlgorithmName.SHA256);
-
-                aes.Key = key.GetBytes(32); // 256-bit key
-                aes.IV = iv;
-
-                var encryptor = aes.CreateEncryptor(aes.Key, aes.IV);
-
-                using (var ms = new MemoryStream())
-                {
-                    using (var cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write))
-                    {
-                        using (var sw = new StreamWriter(cs)) sw.Write(plainText);
-                    }
-
-                    // Trả về base64 của Salt, IV và Ciphertext
-                    byte[] cipherText = ms.ToArray();
-                    byte[] result = new byte[salt.Length + iv.Length + cipherText.Length];
-
-                    Buffer.BlockCopy(salt, 0, result, 0, salt.Length);
-                    Buffer.BlockCopy(iv, 0, result, salt.Length, iv.Length);
-                    Buffer.BlockCopy(cipherText, 0, result, salt.Length + iv.Length, cipherText.Length);
-
-                    return Convert.ToBase64String(result);
-                }
+                rng.GetBytes(nonce);
             }
+
+            using (var aesGcm = new AesGcm(sessionKey))
+            {
+                aesGcm.Encrypt(nonce, plaintextBytes, cipherBytes, tag);
+            }
+
+            return new EncryptionResult
+            {
+                CipherText = Convert.ToBase64String(cipherBytes),
+                Nonce = Convert.ToBase64String(nonce),
+                Tag = Convert.ToBase64String(tag)
+            };
         }
 
-        // Giải mã AES với IV và Salt được gửi kèm
-        public static string Decrypt(string cipherText)
+        public static string Decrypt(string cipherTextBase64, string nonceBase64, string tagBase64, byte[] sessionKey)
         {
+            if (string.IsNullOrWhiteSpace(cipherTextBase64))
+                throw new ArgumentException("cipherText không được rỗng.");
+
+            if (string.IsNullOrWhiteSpace(nonceBase64))
+                throw new ArgumentException("nonce không được rỗng.");
+
+            if (string.IsNullOrWhiteSpace(tagBase64))
+                throw new ArgumentException("tag không được rỗng.");
+
+            if (sessionKey == null || sessionKey.Length < 16)
+                throw new ArgumentException("sessionKey không hợp lệ.");
+
             try
             {
-                byte[] fullCipher = Convert.FromBase64String(cipherText);
+                byte[] nonce = Convert.FromBase64String(nonceBase64);
+                byte[] tag = Convert.FromBase64String(tagBase64);
+                byte[] cipherBytes = Convert.FromBase64String(cipherTextBase64);
+                byte[] plaintextBytes = new byte[cipherBytes.Length];
 
-                // Lấy Salt và IV từ ciphertext
-                byte[] salt = new byte[16];
-                byte[] iv = new byte[16];
-                Buffer.BlockCopy(fullCipher, 0, salt, 0, salt.Length);
-                Buffer.BlockCopy(fullCipher, salt.Length, iv, 0, iv.Length);
-
-                // Lấy phần ciphertext còn lại
-                byte[] cipherBytes = new byte[fullCipher.Length - salt.Length - iv.Length];
-                Buffer.BlockCopy(fullCipher, salt.Length + iv.Length, cipherBytes, 0, cipherBytes.Length);
-
-                // Derive key từ passphrase và salt
-                var key = new Rfc2898DeriveBytes(SecretKey, salt, 100000, HashAlgorithmName.SHA256);
-                using (Aes aes = Aes.Create())
+                using (var aesGcm = new AesGcm(sessionKey))
                 {
-                    aes.KeySize = 256; // AES-256
-                    aes.Key = key.GetBytes(32); // 256-bit key
-                    aes.IV = iv;
-
-                    var decryptor = aes.CreateDecryptor(aes.Key, aes.IV);
-
-                    using (var ms = new MemoryStream(cipherBytes))
-                    {
-                        using (var cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read))
-                        {
-                            using (var sr = new StreamReader(cs)) return sr.ReadToEnd();
-                        }
-                    }
+                    aesGcm.Decrypt(nonce, cipherBytes, tag, plaintextBytes);
                 }
+
+                return Encoding.UTF8.GetString(plaintextBytes);
             }
             catch
             {
-                return "[Lỗi giải mã hoặc tin nhắn không hợp lệ]";
+                return "[Lỗi giải mã / sai session key / dữ liệu bị sửa đổi]";
             }
+        }
+
+        public static EncryptionResult EncryptBytes(byte[] data, byte[] sessionKey)
+        {
+            if (data == null || data.Length == 0)
+                throw new ArgumentException("data không hợp lệ.");
+
+            if (sessionKey == null || sessionKey.Length < 16)
+                throw new ArgumentException("sessionKey không hợp lệ.");
+
+            byte[] nonce = new byte[NonceSize];
+            byte[] cipherBytes = new byte[data.Length];
+            byte[] tag = new byte[TagSize];
+
+            using (var rng = RandomNumberGenerator.Create())
+            {
+                rng.GetBytes(nonce);
+            }
+
+            using (var aesGcm = new AesGcm(sessionKey))
+            {
+                aesGcm.Encrypt(nonce, data, cipherBytes, tag);
+            }
+
+            return new EncryptionResult
+            {
+                CipherText = Convert.ToBase64String(cipherBytes),
+                Nonce = Convert.ToBase64String(nonce),
+                Tag = Convert.ToBase64String(tag)
+            };
+        }
+
+        public static byte[] DecryptBytes(string cipherTextBase64, string nonceBase64, string tagBase64, byte[] sessionKey)
+        {
+            byte[] nonce = Convert.FromBase64String(nonceBase64);
+            byte[] tag = Convert.FromBase64String(tagBase64);
+            byte[] cipherBytes = Convert.FromBase64String(cipherTextBase64);
+            byte[] plainBytes = new byte[cipherBytes.Length];
+
+            using (var aesGcm = new AesGcm(sessionKey))
+            {
+                aesGcm.Decrypt(nonce, cipherBytes, tag, plainBytes);
+            }
+
+            return plainBytes;
         }
     }
 }
